@@ -437,12 +437,19 @@ class GeWeChatMessage(ChatMessage):
                     target_username = None
                     
                     if link_list is not None:
-                        # 根据消息类型确定要查找的link name
-                        link_name = 'names' if content_type == 'tmpl_type_profilewithrevoke' else 'kickoutname'
-                        action_link = link_list.find(f".//link[@name='{link_name}']")
-                        
-                        if action_link is not None:
-                            members = action_link.findall('.//member')
+                        # 获取邀请人信息
+                        inviter_link = link_list.find(".//link[@name='username']")
+                        inviter_nickname = "未知用户"
+                        if inviter_link is not None:
+                            inviter_member = inviter_link.find('.//member')
+                            if inviter_member is not None:
+                                inviter_nickname_elem = inviter_member.find('nickname')
+                                inviter_nickname = inviter_nickname_elem.text if inviter_nickname_elem is not None else "未知用户"
+
+                        # 获取被邀请人/被移除人信息
+                        names_link = link_list.find(".//link[@name='names']")
+                        if names_link is not None:
+                            members = names_link.findall('.//member')
                             nicknames = []
                             usernames = []
                             
@@ -453,7 +460,7 @@ class GeWeChatMessage(ChatMessage):
                                 usernames.append(username_elem.text if username_elem is not None else None)
                             
                             # 处理分隔符（主要针对邀请消息）
-                            separator_elem = action_link.find('separator')
+                            separator_elem = names_link.find('separator')
                             separator = separator_elem.text if separator_elem is not None else '、'
                             target_nickname = separator.join(nicknames) if nicknames else "未知用户"
                             
@@ -461,12 +468,13 @@ class GeWeChatMessage(ChatMessage):
                             target_username = next((u for u in usernames if u), None)
 
                     # 构造最终消息内容
-                    if content_type == 'tmpl_type_profilewithrevoke':
-                        self.content = f'你邀请"{target_nickname}"加入了群聊'
-                        self.ctype = ContextType.JOIN_GROUP
-                    elif content_type == 'tmpl_type_profile':
-                        self.content = f'你将"{target_nickname}"移出了群聊'
-                        self.ctype = ContextType.EXIT_GROUP  # 可根据需要创建新的ContextType
+                    if content_type == 'tmpl_type_profile':
+                        if "移出" in template.text:
+                            self.content = f'{inviter_nickname}将"{target_nickname}"移出了群聊'
+                            self.ctype = ContextType.EXIT_GROUP
+                        else:
+                            self.content = f'{inviter_nickname}邀请"{target_nickname}"加入了群聊'
+                            self.ctype = ContextType.JOIN_GROUP
 
                     self.actual_user_nickname = target_nickname
                     self.actual_user_id = target_username
