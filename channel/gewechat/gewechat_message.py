@@ -445,36 +445,38 @@ class GeWeChatMessage(ChatMessage):
                             if inviter_member is not None:
                                 inviter_nickname_elem = inviter_member.find('nickname')
                                 inviter_nickname = inviter_nickname_elem.text if inviter_nickname_elem is not None else "未知用户"
+                        link_names = []
+                        if "移出" in template.text:
+                            link_names = ['kickoutname']
+                        else:
+                            link_names = ['names']
+                            
+                        for link_name in link_names:
+                            action_link = link_list.find(f".//link[@name='{link_name}']")
+                            if action_link is not None:
+                                members = action_link.findall('.//member')
+                                nicknames = []
+                                usernames = []
+                                
+                                for member in members:
+                                    nickname_elem = member.find('nickname')
+                                    username_elem = member.find('username')
+                                    nicknames.append(nickname_elem.text if nickname_elem is not None else "未知用户")
+                                    usernames.append(username_elem.text if username_elem is not None else None)
 
-                        # 获取被邀请人/被移除人信息
-                        names_link = link_list.find(".//link[@name='names']")
-                        if names_link is not None:
-                            members = names_link.findall('.//member')
-                            nicknames = []
-                            usernames = []
+                                separator_elem = action_link.find('separator')
+                                separator = separator_elem.text if separator_elem is not None else '、'
+                                target_nickname = separator.join(nicknames) if nicknames else "未知用户"
+                                break 
                             
-                            for member in members:
-                                nickname_elem = member.find('nickname')
-                                username_elem = member.find('username')
-                                nicknames.append(nickname_elem.text if nickname_elem is not None else "未知用户")
-                                usernames.append(username_elem.text if username_elem is not None else None)
-                            
-                            # 处理分隔符（主要针对邀请消息）
-                            separator_elem = names_link.find('separator')
-                            separator = separator_elem.text if separator_elem is not None else '、'
-                            target_nickname = separator.join(nicknames) if nicknames else "未知用户"
-                            
-                            # 取第一个有效username（根据业务需求调整）
                             target_username = next((u for u in usernames if u), None)
 
-                    # 构造最终消息内容
-                    if content_type == 'tmpl_type_profile':
-                        if "移出" in template.text:
-                            self.content = f'{inviter_nickname}将"{target_nickname}"移出了群聊'
-                            self.ctype = ContextType.EXIT_GROUP
-                        else:
-                            self.content = f'{inviter_nickname}邀请"{target_nickname}"加入了群聊'
-                            self.ctype = ContextType.JOIN_GROUP
+                    if "移出" in template.text:
+                        self.content = f'你将"{target_nickname}"移出了群聊'
+                        self.ctype = ContextType.EXIT_GROUP
+                    else:
+                        self.content = f'你邀请"{target_nickname}"加入了群聊'
+                        self.ctype = ContextType.JOIN_GROUP
 
                     self.actual_user_nickname = target_nickname
                     self.actual_user_id = target_username
