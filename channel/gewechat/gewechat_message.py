@@ -425,58 +425,69 @@ class GeWeChatMessage(ChatMessage):
                         raise ET.ParseError("No content_template found")
                         
                     content_type = content_template.get('type')
-                    if content_type not in ['tmpl_type_profilewithrevoke', 'tmpl_type_profile']:
-                        raise ET.ParseError(f"Invalid content_template type: {content_type}")
-                    
                     template = content_template.find('.//template')
                     if template is None:
                         raise ET.ParseError("No template element found")
-
+                    
+                    template_text = template.text if template.text else ""
                     link_list = content_template.find('.//link_list')
                     target_nickname = "未知用户"
+                    inviter_nickname = ""
                     target_username = None
                     
-                    if link_list is not None:
-                        # 获取邀请人信息
-                        inviter_link = link_list.find(".//link[@name='username']")
-                        inviter_nickname = "未知用户"
-                        if inviter_link is not None:
-                            inviter_member = inviter_link.find('.//member')
-                            if inviter_member is not None:
-                                inviter_nickname_elem = inviter_member.find('nickname')
-                                inviter_nickname = inviter_nickname_elem.text if inviter_nickname_elem is not None else "未知用户"
-                        link_names = []
-                        if "移出" in template.text:
-                            link_names = ['kickoutname']
-                        else:
-                            link_names = ['names']
-                            
-                        for link_name in link_names:
-                            action_link = link_list.find(f".//link[@name='{link_name}']")
-                            if action_link is not None:
-                                members = action_link.findall('.//member')
-                                nicknames = []
-                                usernames = []
-                                
-                                for member in members:
-                                    nickname_elem = member.find('nickname')
-                                    username_elem = member.find('username')
-                                    nicknames.append(nickname_elem.text if nickname_elem is not None else "未知用户")
-                                    usernames.append(username_elem.text if username_elem is not None else None)
-
-                                separator_elem = action_link.find('separator')
-                                separator = separator_elem.text if separator_elem is not None else '、'
-                                target_nickname = separator.join(nicknames) if nicknames else "未知用户"
-                                break 
-                            
-                            target_username = next((u for u in usernames if u), None)
-
-                    if "移出" in template.text:
-                        self.content = f'你将"{target_nickname}"移出了群聊'
-                        self.ctype = ContextType.EXIT_GROUP
-                    else:
-                        self.content = f'你邀请"{target_nickname}"加入了群聊'
+                    # 处理不同模板类型
+                    if content_type == 'tmpl_type_profilewithrevoke':
                         self.ctype = ContextType.JOIN_GROUP
+                        action_link = link_list.find(".//link[@name='names']")
+                        inviter_link = link_list.find(".//link[@name='username']")
+                        
+                        # 处理被邀请人
+                        if action_link:
+                            members = action_link.findall('.//member')
+                            nicknames = [m.find('nickname').text for m in members if m.find('nickname') is not None]
+                            target_nickname = action_link.find('separator').text.join(nicknames) if nicknames else "未知用户"
+                        
+                        # 处理邀请人
+                        if inviter_link:
+                            inviter = inviter_link.find('.//member')
+                            inviter_nickname = inviter.find('nickname').text if inviter else "未知用户"
+                        
+                        self.content = f'"{inviter_nickname}"邀请"{target_nickname}"加入了群聊'
+
+                    elif content_type == 'tmpl_type_profile':
+                        # 根据模板内容动态判断操作类型
+                        if "移出了群聊" in template_text:
+                            self.ctype = ContextType.EXIT_GROUP
+                            action_link = link_list.find(".//link[@name='kickoutname']")
+                            if action_link:
+                                members = action_link.findall('.//member')
+                                nicknames = [m.find('nickname').text for m in members if m.find('nickname') is not None]
+                                target_nickname = "、".join(nicknames) if nicknames else "未知用户"
+                            self.content = f'你将"{target_nickname}"移出了群聊'
+                        
+                        elif "加入了群聊" in template_text:
+                            self.ctype = ContextType.JOIN_GROUP
+                            inviter_link = link_list.find(".//link[@name='username']")
+                            names_link = link_list.find(".//link[@name='names']")
+                            
+                            # 处理邀请人
+                            if inviter_link:
+                                inviter = inviter_link.find('.//member')
+                                inviter_nickname = inviter.find('nickname').text if inviter else "未知用户"
+                            
+                            # 处理被邀请人
+                            if names_link:
+                                members = names_link.findall('.//member')
+                                nicknames = [m.find('nickname').text for m in members if m.find('nickname') is not None]
+                                target_nickname = names_link.find('separator').text.join(nicknames) if nicknames else "未知用户"
+                            
+                            self.content = f'"{inviter_nickname}"邀请"{target_nickname}"加入了群聊'
+
+                    # 提取用户wxid
+                    if link_list:
+                        member = link_list.find('.//member')
+                        if member:
+                            target_username = member.find('username').text if member.find('username') else None
 
                     self.actual_user_nickname = target_nickname
                     self.actual_user_id = target_username
@@ -489,7 +500,7 @@ class GeWeChatMessage(ChatMessage):
                     self.content = content
                 except Exception as e:
                     logger.error(f"[gewechat] Unexpected error parsing group system message: {e}")
-                    self.content = content
+                    self.content = content        
         elif msg_type == 47:
             self.ctype = ContextType.EMOJI
             self.content = self.msg_data.get('Content', {}).get('string', '')
